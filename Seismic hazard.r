@@ -1,0 +1,485 @@
+####code 2
+
+################## code designed to model the seismic hazard ##############
+#### The code heare is based on R language.
+#### If you have any questions, please email Jian Sun: sunjian143687@163.com
+
+
+#### Load all required libraries at the beginning
+library(tidyverse)
+library(sf)
+library(terra)
+library(raster)
+library(foreign)
+library(parallel)
+library(readxl)
+library(fs)
+library(jsonlite)
+
+# Set working directory
+setwd("/path/")
+######################################################################
+# 2.1 Process VS30 data - Shear wave velocity at 30m depth
+# Reads VS30 database and extracts values for specific grid locations
+
+read.dbf("VS30_data.dbf") -> sj
+read_sf("china_boundary.shp") %>% st_crs() -> crss
+rast("reference_raster.tif") -> mod
+
+sj %>% 
+  as_tibble() -> sj1
+sj1 %>% 
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs=4326) %>% 
+  st_transform(crss) -> df
+
+mod %>% 
+  terra::extract(df, xy=T) %>% 
+  as_tibble() %>% 
+  na.omit() %>% 
+  unite("link", x, y) -> df1
+
+df %>% 
+  st_drop_geometry() %>% 
+  mutate(ID=row_number()) -> aa1
+df1 %>% 
+  left_join(aa1) -> df2
+
+df2 %>% 
+  dplyr::select(link,VS30) %>% 
+  distinct() -> df3
+df3 %>% 
+  write_csv("vs30_processed.csv")
+
+# Process VS30 data for 1km grid
+read_csv("grid_coordinates.csv") -> df
+read_csv("vs30_processed.csv") %>% 
+  rename(link1km=link) -> vs
+
+df %>% 
+  left_join(vs) -> df1
+df1 %>% 
+  split(.$link1km) %>% 
+  map(function(x) x %>% slice(1)) %>% 
+  bind_rows() -> df2
+
+df2 %>% 
+  mutate(VS30=if_else(is.na(VS30),365.1907,VS30)) -> df22
+df22 %>% 
+  write_csv("vs30_1km_grid.csv")
+
+
+
+
+
+
+
+
+
+# 2.2 Process soil depth data
+# Extracts soil depth information from global dataset and clips to China boundary
+
+read_sf("china_provinces.shp") -> df
+rast("global_soil_depth.tif") -> ss
+
+ss %>% 
+  crop(df) %>% 
+  mask(df) -> ss1
+origin(ss1) <- c(0,0)
+ss1/100 -> ss2 # Convert cm to meters
+ss2 %>% 
+  writeRaster("china_soil_depth.tif")
+
+# Extract soil depth values for 1km grid
+read_csv("grid_coordinates.csv") -> df
+rast("china_soil_depth.tif") -> sss
+
+df %>% 
+  mutate(link=link1km) %>% 
+  dplyr::select(link1km,link) -> df1
+
+df1 %>% 
+  separate(link, into = c("longitude","latitude"), sep = "_") %>% 
+  st_as_sf(coords = c("longitude", "latitude"), crs=crss) %>% 
+  st_transform(4326) -> df2
+
+df2 %>% 
+  mutate(idd=row_number()) -> df3
+terra::extract(sss, df3) -> df4
+
+df4 %>% 
+  as_tibble() %>% 
+  set_names("idd","soil") -> df5
+
+df3 %>% 
+  st_drop_geometry() %>% 
+  left_join(df5) %>% 
+  dplyr::select(-idd) -> df55
+
+df55 %>% 
+  mutate(soil=if_else(is.na(soil), 21.9809, soil)) %>% 
+  na.omit() -> df6
+df6 %>% 
+  write_csv("soil_depth_1km_grid.csv")
+
+# 2.3 Site classification based on VS30 and soil depth
+# Classifies sites into different categories for seismic hazard analysis
+
+read_csv("soil_depth_1km_grid.csv") -> a1
+read_csv("vs30_1km_grid.csv") -> a2
+
+a2 %>% 
+  left_join(a1) -> df
+
+df %>% 
+  mutate(vs2 = case_when(
+    between(`VS30`, -Inf, 150) ~ "v1",
+    between(`VS30`, 150, 250) ~ "v2",
+    between(`VS30`, 250, 500) ~ "v3",
+    between(`VS30`, 500, 800) ~ "i1",
+    between(`VS30`, 800, Inf) ~ "i0"
+  )) -> df1
+
+df1 %>% 
+  split(.$vs2) -> df2
+
+# Classify sites based on combined VS30 and soil depth criteria
+df2$v3 %>% 
+  mutate(site = case_when(
+    between(`soil`, -Inf, 4.9) ~ "i1",
+    between(`soil`, 4.9, Inf) ~ "i2",
+  )) %>% 
+  dplyr::select(link1km, site) -> vv3
+
+df2$v2 %>% 
+  mutate(site = case_when(
+    between(`soil`, -Inf, 3) ~ "i1",
+    between(`soil`, 3, 50) ~ "ii",
+    between(`soil`, 50, Inf) ~ "iii"
+  )) %>% 
+  dplyr::select(link1km, site) -> vv2
+
+df2$v1 %>% 
+  mutate(site = case_when(
+    between(`soil`, -Inf, 3) ~ "i1",
+    between(`soil`, 3, 15) ~ "ii",
+    between(`soil`, 15, 80) ~ "iii",
+    between(`soil`, 80, Inf) ~ "iv"
+  )) %>% 
+  dplyr::select(link1km, site) -> vv1
+
+df2$i1 %>% 
+  dplyr::select(link1km, site=vs2) -> xx1
+df2$i0 %>% 
+  dplyr::select(link1km, site=vs2) -> xx2
+
+xx1 %>% 
+  bind_rows(xx2) %>% 
+  bind_rows(vv1) %>% 
+  bind_rows(vv2) %>% 
+  bind_rows(vv3) -> df3
+
+df3 %>% 
+  write_csv("site_classification_1km_grid.csv")
+
+# 2.4 PGA (Peak Ground Acceleration) risk calculation
+# Calculates seismic risk probabilities based on PGA values and vulnerability functions
+
+ppx <- function(x) {pnorm(x, mean=0,sd=1)}
+read_xlsx("pga_parameters.xlsx") -> npga
+
+npga %>% 
+  dplyr::select(npga) %>% 
+  unique() %>% 
+  mutate(id2=row_number()) -> cc1
+npga %>% 
+  left_join(cc1) -> npga1
+
+read_csv("vulnerability_parameters.csv") -> paras
+
+# Function to calculate damage probabilities for different damage states
+new_risk <- function(pcode, ztype, ppp){
+  # Extract vulnerability parameters for specific province and building type
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS2_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS2_log_mean
+
+
+paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS3_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS3_log_mean
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS4_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS4_log_mean
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS5_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS5_log_mean
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS2_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS2_log_std
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS3_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS3_log_std
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS4_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS4_log_std
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS5_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS5_log_std
+  
+  cc1 %>% 
+    dplyr::filter(id2==ppp) %>% 
+    dplyr::select(npga) %>% 
+    pull() -> pga
+  
+  # Calculate damage probabilities using lognormal distribution
+  x1 <- (log(pga)-(DS2_log_mean))/DS2_log_std
+  x2 <- (log(pga)-(DS3_log_mean))/DS3_log_std
+  x3 <- (log(pga)-(DS4_log_mean))/DS4_log_std
+  x4 <- (log(pga)-(DS5_log_mean))/DS5_log_std
+  
+  ppx(x1) -> y1
+  ppx(x2) -> y2
+  ppx(x3) -> y3
+  ppx(x4) -> y4
+  
+  slight <- y1-y2
+  moderate <- y2-y3
+  extensive <- y3-y4
+  complete <- y4
+
+  tibble(slight, moderate, extensive, complete) %>% 
+    mutate(slight=if_else(slight<0, 1e-35, slight),
+           moderate=if_else(moderate<0, 1e-35, moderate),
+           extensive=if_else(extensive<0, 1e-35, extensive),
+           complete=if_else(complete<0, 1e-35, complete),
+           total=complete+extensive+moderate+slight,
+           ZHtotal=complete+extensive*0.8+moderate*0.4+slight*0.2)
+}
+
+# Parallel processing for risk calculation
+makeCluster(8) -> cl
+
+parLapply(cl, seq(1, nrow(df), by = 2025), function(x){
+  df %>% 
+    slice(x:(x+2024)) %>% 
+    mutate(jss = pmap(list(pcode, ztype, ppp), new_risk)) %>%
+    write_rds(paste0("temp_results_", x, ".rds"))
+})
+
+# Combine results from parallel processing
+lapply(fs::dir_ls("temp_results"), function(x){
+  read_rds(x)
+}) %>% 
+  bind_rows() -> df
+
+df %>% 
+  unnest(jss) -> df1
+df1 %>% 
+  rename(id2=ppp) -> df2
+
+npga1 %>% 
+  left_join(df2) -> df3
+df3 %>% 
+  write_csv("pga_risk_results.csv")
+
+# 2.5 Rasterize damage rate results
+# Converts damage rate data from point format to raster format for visualization
+
+read_csv("damage_rate_data.csv") -> df
+read_sf("china_boundary.shp") %>% 
+  st_crs() -> crss
+rast("reference_raster.tif") -> mod
+
+# Process for different probability levels (p63, p05, p2)
+df %>% 
+  dplyr::filter(level=="p63") %>% 
+  dplyr::select(link33, dr=damage_rate) %>% 
+  separate(link33, into = c("lon", "lat"), sep = "_") -> df1
+
+df1 %>% 
+  st_as_sf(coords = c("lon", "lat"), crs = crss) -> df2
+
+rast(ext(df2), resolution = c(1000, 1000),
+     crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") -> raster_template
+
+rasterize(vect(df2), raster_template, field = "dr") -> rst
+rst %>% 
+  project(mod) %>% 
+  resample(mod, method="near") -> rst1
+names(rst1) <- "damage_rate"
+origin(rst1) <- c(0,0)
+rst1[rst1==0] <- NA
+rst1 %>% 
+  writeRaster("damage_rate_p63.tif")
+
+      
+# 2.6 PGA-based damage calculation for raster data
+# Applies vulnerability functions to PGA raster data to calculate damage probabilities
+
+rast("pga_raster.tif") -> pga0
+pga0[pga0==0] <- 0.05
+read_sf("china_boundary.shp") -> cnmp
+
+read_xlsx("vulnerability_parameters.xlsx") -> paras
+
+# Function to calculate damage probabilities for raster data
+pga_pcode <- function(pcode, ztype){
+  # Clip PGA raster to province boundary
+  cnmp %>% 
+    dplyr::filter(省代码==as.numeric(pcode)) -> pvv
+  pga0 %>% 
+    crop(pvv) %>% 
+    mask(pvv) -> pga
+  
+  # Extract vulnerability parameters
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS2_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS2_log_mean
+  
+  # Similar extraction for other parameters...
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS3_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS3_log_mean
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS4_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS4_log_mean
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS5_log_mean) %>% 
+    pull() %>% 
+    as.numeric() -> DS5_log_mean
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS2_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS2_log_std
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS3_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS3_log_std
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS4_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS4_log_std
+  
+  paras %>% 
+    dplyr::filter(省代码==pcode) %>% 
+    dplyr::filter(type==ztype) %>% 
+    dplyr::select(DS5_log_std) %>% 
+    pull() %>% 
+    as.numeric() -> DS5_log_std
+  
+  # Calculate damage probabilities for each pixel
+  x1 <- (log(pga)-(DS2_log_mean))/DS2_log_std
+  x2 <- (log(pga)-(DS3_log_mean))/DS3_log_std
+  x3 <- (log(pga)-(DS4_log_mean))/DS4_log_std
+  x4 <- (log(pga)-(DS5_log_mean))/DS5_log_std
+  
+  app(x1, fun=ppx, cores = 8) -> y1
+  app(x2, fun=ppx, cores = 8) -> y2
+  app(x3, fun=ppx, cores = 8) -> y3
+  app(x4, fun=ppx, cores = 8) -> y4
+  
+  slight <- y1-y2
+  moderate <- y2-y3
+  extensive <- y3-y4
+  complete <- y4
+  total <- complete+extensive+moderate+slight
+  
+  ZHslight <- slight*0.2
+  ZHmoderate <- moderate*0.4
+  ZHextensive <- extensive*0.8
+  ZHcomplete <- complete
+  ZHtotal <- complete+extensive*0.8+moderate*0.4+slight*0.2
+  
+  # Save all damage probability rasters
+  slight %>% 
+    writeRaster(paste0("damage_slight_",ztype,"_",pcode,".tif"),overwrite=T)
+  moderate %>% 
+    writeRaster(paste0("damage_moderate_",ztype,"_",pcode,".tif"),overwrite=T)
+  extensive %>% 
+    writeRaster(paste0("damage_extensive_",ztype,"_",pcode,".tif"),overwrite=T)
+  complete %>% 
+    writeRaster(paste0("damage_complete_",ztype,"_",pcode,".tif"),overwrite=T)
+  total %>% 
+    writeRaster(paste0("damage_total_",ztype,"_",pcode,".tif"),overwrite=T)
+  ZHslight %>% 
+    writeRaster(paste0("zh_damage_slight_",ztype,"_",pcode,".tif"),overwrite=T)
+  ZHmoderate %>% 
+    writeRaster(paste0("zh_damage_moderate_",ztype,"_",pcode,".tif"),overwrite=T)
+  ZHextensive %>% 
+    writeRaster(paste0("zh_damage_extensive_",ztype,"_",pcode,".tif"),overwrite=T)
+  ZHcomplete %>% 
+    writeRaster(paste0("zh_damage_complete_",ztype,"_",pcode,".tif"),overwrite=T)
+  ZHtotal %>% 
+    writeRaster(paste0("zh_damage_total_",ztype,"_",pcode,".tif"),overwrite=T)
+}
+
+# Example usage for specific province and building types
+paras %>%
+  dplyr::filter(truee=="T") %>%
+  dplyr::select(省代码, type) %>%
+  set_names("pcode", "ztype") %>%
+  filter(pcode=="110000") %>% 
+  dplyr::filter(str_detect(ztype, "rc_p_0.05_")) -> tmp1
+
+paras %>%
+  dplyr::filter(truee=="T") %>%
+  dplyr::select(省代码, type) %>%
+  set_names("pcode", "ztype") %>%
+  filter(pcode=="110000") %>% 
+  dplyr::filter(str_detect(ztype, "rc_x_0.05_")) -> tmp2
+
+tmp1 %>% 
+  bind_rows(tmp2) %>%
+  mutate(jss=map2(pcode, ztype, pga_pcode))
