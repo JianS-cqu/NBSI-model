@@ -1,1227 +1,438 @@
-####code 2
+####code 1
 
-#### code designed to calculate the probability of building damages
-#### PGA needs to be converted to spectral displacement (variable "s") according to Materials and Methods 5.
-
-#### inputs
-#### uses PGAs in a tiff format (Fig. S13 in Supplementary materials)
-#### Corresponding coefficient codes have been given, and are also provided in Table S9
-
-#### outputs
-#### the outputs include:
-#### a series of tiff files of damage probabilities.
-
-#### function:
-#### "dm_state_structure_design", for example "dm_slight_bw_H",
-#### means the exposure rate under the slight damage state living in brick-wood buildings with high-code design.
-#### "xf_dm_structure_design", for example "xf_dm_bw_H",
-#### means the total damage probability of brick-wood buildings with High-code design.
-
-
+################################## code designed to building exposure model and gridded stocks #######################
+#### This section of the code consists of 5 parts.
+#### code 1.1 is employed to estimate building heights, morphology, and geometric parameters for each building in China(Section 2.1 in Supplementary materials).
+#### code 1.2 is employed to estimate building age and use type in China(Section 2.2 in Supplementary materials).
+#### code 1.3 is employed to ascertain the applicable seismic design provisions (Section 2.3 in Supplementary materials).
+#### code 1.4 is employed to categorize structural types of Chinese buildings (Section 2.4 in Supplementary materials).
+#### code 1.5 is employed to estimate gridded building inventory (Section 2.5 in Supplementary materials).
 
 #### packages
+library(tidyverse)
+library(sf)
+library(terra)
+library(raster)
+library(randomForest)
+library(fs)
+library(jsonlite)
+library(readxl)
 
-{
-  require(tidyverse)
-  require(terra)
-}
-dm_slight_bw_H <- function(s){
-  x1 <- (log(s/0.55))/0.8
-  x2 <- (log(s/1.51))/0.81
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bw_H <- function(s){
-  x2 <- (log(s/1.51))/0.81
-  x3 <- (log(s/5.04))/0.85
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bw_H <- function(s){
-  x3 <- (log(s/5.04))/0.85
-  x4 <- (log(s/12.6))/0.97
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bw_H <- function(s){
-  x4 <- (log(s/12.6))/0.97
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bw_H <- function(s){
-  x1 <- (log(s/0.55))/0.8
-  x2 <- (log(s/1.51))/0.81
-  x3 <- (log(s/5.04))/0.85
-  x4 <- (log(s/12.6))/0.97
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bw_M <- function(s){
-  x1 <- (log(s/0.5))/0.84
-  x2 <- (log(s/1.25))/0.86
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bw_M <- function(s){
-  x2 <- (log(s/1.25))/0.86
-  x3 <- (log(s/3.86))/0.89
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bw_M <- function(s){
-  x3 <- (log(s/3.86))/0.89
-  x4 <- (log(s/9.45))/1.04
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bw_M <- function(s){
-  x4 <- (log(s/9.45))/1.04
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bw_M <- function(s){
-  x1 <- (log(s/0.5))/0.84
-  x2 <- (log(s/1.25))/0.86
-  x3 <- (log(s/3.86))/0.89
-  x4 <- (log(s/9.45))/1.04
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bw_L <- function(s){
-  x1 <- (log(s/0.45))/0.93
-  x2 <- (log(s/1.25))/0.97
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bw_L <- function(s){
-  x2 <- (log(s/1.25))/0.97
-  x3 <- (log(s/3.86))/1.03
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bw_L <- function(s){
-  x3 <- (log(s/3.86))/1.03
-  x4 <- (log(s/9.45))/0.99
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bw_L <- function(s){
-  x4 <- (log(s/9.45))/0.99
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bw_L <- function(s){
-  x1 <- (log(s/0.45))/0.93
-  x2 <- (log(s/1.25))/0.97
-  x3 <- (log(s/3.86))/1.03
-  x4 <- (log(s/9.45))/0.99
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bw_P <- function(s){
-  x1 <- (log(s/0.4))/1.01
-  x2 <- (log(s/1))/1.05
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bw_P <- function(s){
-  x2 <- (log(s/1))/1.05
-  x3 <- (log(s/3.09))/1.07
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bw_P <- function(s){
-  x3 <- (log(s/3.09))/1.07
-  x4 <- (log(s/7.56))/1.05
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bw_P <- function(s){
-  x4 <- (log(s/7.56))/1.05
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bw_P <- function(s){
-  x1 <- (log(s/0.4))/1.01
-  x2 <- (log(s/1))/1.05
-  x3 <- (log(s/3.09))/1.07
-  x4 <- (log(s/7.56))/1.05
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_a_H <- function(s){
-  x1 <- (log(s/0.45))/0.925
-  x2 <- (log(s/0.89))/0.98
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_a_H <- function(s){
-  x2 <- (log(s/0.89))/0.98
-  x3 <- (log(s/2.235))/1.035
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_a_H <- function(s){
-  x3 <- (log(s/2.235))/1.035
-  x4 <- (log(s/5.205))/1.03
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_a_H <- function(s){
-  x4 <- (log(s/5.205))/1.03
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_a_H <- function(s){
-  x1 <- (log(s/0.45))/0.925
-  x2 <- (log(s/0.89))/0.98
-  x3 <- (log(s/2.235))/1.035
-  x4 <- (log(s/5.205))/1.03
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_a_M <- function(s){
-  x1 <- (log(s/0.41))/1
-  x2 <- (log(s/0.81))/1.05
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_a_M <- function(s){
-  x2 <- (log(s/0.81))/1.05
-  x3 <- (log(s/2.03))/1.09
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_a_M <- function(s){
-  x3 <- (log(s/2.03))/1.09
-  x4 <- (log(s/4.73))/1.08
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_a_M <- function(s){
-  x4 <- (log(s/4.73))/1.08
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_a_M <- function(s){
-  x1 <- (log(s/0.41))/1
-  x2 <- (log(s/0.81))/1.05
-  x3 <- (log(s/2.03))/1.09
-  x4 <- (log(s/4.73))/1.08
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_a_L <- function(s){
-  x1 <- (log(s/0.37))/1.075
-  x2 <- (log(s/0.73))/1.12
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_a_L <- function(s){
-  x2 <- (log(s/0.73))/1.12
-  x3 <- (log(s/1.825))/1.145
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_a_L <- function(s){
-  x3 <- (log(s/1.825))/1.145
-  x4 <- (log(s/4.255))/1.13
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_a_L <- function(s){
-  x4 <- (log(s/4.255))/1.13
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_a_L <- function(s){
-  x1 <- (log(s/0.37))/1.075
-  x2 <- (log(s/0.73))/1.12
-  x3 <- (log(s/1.825))/1.145
-  x4 <- (log(s/4.255))/1.13
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_a_P <- function(s){
-  x1 <- (log(s/0.32))/1.15
-  x2 <- (log(s/0.65))/1.19
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_a_P <- function(s){
-  x2 <- (log(s/0.65))/1.19
-  x3 <- (log(s/1.62))/1.2
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_a_P <- function(s){
-  x3 <- (log(s/1.62))/1.2
-  x4 <- (log(s/3.78))/1.18
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_a_P <- function(s){
-  x4 <- (log(s/3.78))/1.18
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_a_P <- function(s){
-  x1 <- (log(s/0.32))/1.15
-  x2 <- (log(s/0.65))/1.19
-  x3 <- (log(s/1.62))/1.2
-  x4 <- (log(s/3.78))/1.18
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_b_H <- function(s){
-  x1 <- (log(s/0.7))/0.865
-  x2 <- (log(s/1.385))/0.895
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_b_H <- function(s){
-  x2 <- (log(s/1.385))/0.895
-  x3 <- (log(s/3.465))/0.855
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_b_H <- function(s){
-  x3 <- (log(s/3.465))/0.855
-  x4 <- (log(s/8.085))/0.925
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_b_H <- function(s){
-  x4 <- (log(s/8.085))/0.925
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_b_H <- function(s){
-  x1 <- (log(s/0.7))/0.865
-  x2 <- (log(s/1.385))/0.895
-  x3 <- (log(s/3.465))/0.855
-  x4 <- (log(s/8.085))/0.925
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_b_M <- function(s){
-  x1 <- (log(s/0.63))/0.91
-  x2 <- (log(s/1.26))/0.92
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_b_M <- function(s){
-  x2 <- (log(s/1.26))/0.92
-  x3 <- (log(s/3.15))/0.87
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_b_M <- function(s){
-  x3 <- (log(s/3.15))/0.87
-  x4 <- (log(s/7.35))/0.91
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_b_M <- function(s){
-  x4 <- (log(s/7.35))/0.91
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_b_M <- function(s){
-  x1 <- (log(s/0.63))/0.91
-  x2 <- (log(s/1.26))/0.92
-  x3 <- (log(s/3.15))/0.87
-  x4 <- (log(s/7.35))/0.91
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_b_L <- function(s){
-  x1 <- (log(s/0.56))/0.955
-  x2 <- (log(s/1.135))/0.945
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_b_L <- function(s){
-  x2 <- (log(s/1.135))/0.945
-  x3 <- (log(s/2.835))/0.885
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_b_L <- function(s){
-  x3 <- (log(s/2.835))/0.885
-  x4 <- (log(s/6.615))/0.895
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_b_L <- function(s){
-  x4 <- (log(s/6.615))/0.895
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_b_L <- function(s){
-  x1 <- (log(s/0.56))/0.955
-  x2 <- (log(s/1.135))/0.945
-  x3 <- (log(s/2.835))/0.885
-  x4 <- (log(s/6.615))/0.895
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_bc_b_P <- function(s){
-  x1 <- (log(s/0.5))/1
-  x2 <- (log(s/1.01))/0.97
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_bc_b_P <- function(s){
-  x2 <- (log(s/1.01))/0.97
-  x3 <- (log(s/2.52))/0.9
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_bc_b_P <- function(s){
-  x3 <- (log(s/2.52))/0.9
-  x4 <- (log(s/5.88))/0.88
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_bc_b_P <- function(s){
-  x4 <- (log(s/5.88))/0.88
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_bc_b_P <- function(s){
-  x1 <- (log(s/0.5))/1
-  x2 <- (log(s/1.01))/0.97
-  x3 <- (log(s/2.52))/0.9
-  x4 <- (log(s/5.88))/0.88
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_c_H <- function(s){
-  x1 <- (log(s/1.43))/0.7
-  x2 <- (log(s/2.85))/0.73
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_c_H <- function(s){
-  x2 <- (log(s/2.85))/0.73
-  x3 <- (log(s/7.13))/0.85
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_c_H <- function(s){
-  x3 <- (log(s/7.13))/0.85
-  x4 <- (log(s/16.63))/0.965
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_c_H <- function(s){
-  x4 <- (log(s/16.63))/0.965
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_c_H <- function(s){
-  x1 <- (log(s/1.43))/0.7
-  x2 <- (log(s/2.85))/0.73
-  x3 <- (log(s/7.13))/0.85
-  x4 <- (log(s/16.63))/0.965
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_c_M <- function(s){
-  x1 <- (log(s/1.3))/0.71
-  x2 <- (log(s/2.59))/0.74
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_c_M <- function(s){
-  x2 <- (log(s/2.59))/0.74
-  x3 <- (log(s/6.48))/0.9
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_c_M <- function(s){
-  x3 <- (log(s/6.48))/0.9
-  x4 <- (log(s/15.12))/0.96
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_c_M <- function(s){
-  x4 <- (log(s/15.12))/0.96
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_c_M <- function(s){
-  x1 <- (log(s/1.3))/0.71
-  x2 <- (log(s/2.59))/0.74
-  x3 <- (log(s/6.48))/0.9
-  x4 <- (log(s/15.12))/0.96
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_c_L <- function(s){
-  x1 <- (log(s/1.17))/0.72
-  x2 <- (log(s/2.33))/0.75
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_c_L <- function(s){
-  x2 <- (log(s/2.33))/0.75
-  x3 <- (log(s/5.83))/0.95
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_c_L <- function(s){
-  x3 <- (log(s/5.83))/0.95
-  x4 <- (log(s/13.61))/0.955
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_c_L <- function(s){
-  x4 <- (log(s/13.61))/0.955
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_c_L <- function(s){
-  x1 <- (log(s/1.17))/0.72
-  x2 <- (log(s/2.33))/0.75
-  x3 <- (log(s/5.83))/0.95
-  x4 <- (log(s/13.61))/0.955
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_c_P <- function(s){
-  x1 <- (log(s/1.04))/0.73
-  x2 <- (log(s/2.07))/0.76
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_c_P <- function(s){
-  x2 <- (log(s/2.07))/0.76
-  x3 <- (log(s/5.18))/1
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_c_P <- function(s){
-  x3 <- (log(s/5.18))/1
-  x4 <- (log(s/12.1))/0.95
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_c_P <- function(s){
-  x4 <- (log(s/12.1))/0.95
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_c_P <- function(s){
-  x1 <- (log(s/1.04))/0.73
-  x2 <- (log(s/2.07))/0.76
-  x3 <- (log(s/5.18))/1
-  x4 <- (log(s/12.1))/0.95
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_a_H <- function(s){
-  x1 <- (log(s/0.6))/1.04
-  x2 <- (log(s/1.19))/1.03
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_a_H <- function(s){
-  x2 <- (log(s/1.19))/1.03
-  x3 <- (log(s/2.97))/1.04
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_a_H <- function(s){
-  x3 <- (log(s/2.97))/1.04
-  x4 <- (log(s/6.93))/0.905
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_a_H <- function(s){
-  x4 <- (log(s/6.93))/0.905
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_a_H <- function(s){
-  x1 <- (log(s/0.6))/1.04
-  x2 <- (log(s/1.19))/1.03
-  x3 <- (log(s/2.97))/1.04
-  x4 <- (log(s/6.93))/0.905
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_a_L <- function(s){
-  x1 <- (log(s/0.58))/1.14
-  x2 <- (log(s/0.97))/1.11
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_a_L <- function(s){
-  x2 <- (log(s/0.97))/1.11
-  x3 <- (log(s/2.43))/1.12
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_a_L <- function(s){
-  x3 <- (log(s/2.43))/1.12
-  x4 <- (log(s/5.67))/0.915
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_a_L <- function(s){
-  x4 <- (log(s/5.67))/0.915
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_a_L <- function(s){
-  x1 <- (log(s/0.58))/1.14
-  x2 <- (log(s/0.97))/1.11
-  x3 <- (log(s/2.43))/1.12
-  x4 <- (log(s/5.67))/0.915
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_a_M <- function(s){
-  x1 <- (log(s/0.54))/1.09
-  x2 <- (log(s/1.08))/1.07
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_a_M <- function(s){
-  x2 <- (log(s/1.08))/1.07
-  x3 <- (log(s/2.7))/1.08
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_a_M <- function(s){
-  x3 <- (log(s/2.7))/1.08
-  x4 <- (log(s/6.3))/0.91
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_a_M <- function(s){
-  x4 <- (log(s/6.3))/0.91
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_a_M <- function(s){
-  x1 <- (log(s/0.54))/1.09
-  x2 <- (log(s/1.08))/1.07
-  x3 <- (log(s/2.7))/1.08
-  x4 <- (log(s/6.3))/0.91
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_a_P <- function(s){
-  x1 <- (log(s/0.43))/1.19
-  x2 <- (log(s/0.86))/1.15
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_a_P <- function(s){
-  x2 <- (log(s/0.86))/1.15
-  x3 <- (log(s/2.16))/1.16
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_a_P <- function(s){
-  x3 <- (log(s/2.16))/1.16
-  x4 <- (log(s/5.04))/0.92
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_a_P <- function(s){
-  x4 <- (log(s/5.04))/0.92
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_a_P <- function(s){
-  x1 <- (log(s/0.43))/1.19
-  x2 <- (log(s/0.86))/1.15
-  x3 <- (log(s/2.16))/1.16
-  x4 <- (log(s/5.04))/0.92
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_b_H <- function(s){
-  x1 <- (log(s/0.98))/0.825
-  x2 <- (log(s/1.98))/0.815
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_b_H <- function(s){
-  x2 <- (log(s/1.98))/0.815
-  x3 <- (log(s/4.95))/0.735
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_b_H <- function(s){
-  x3 <- (log(s/4.95))/0.735
-  x4 <- (log(s/11.55))/0.99
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_b_H <- function(s){
-  x4 <- (log(s/11.55))/0.99
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_b_H <- function(s){
-  x1 <- (log(s/0.98))/0.825
-  x2 <- (log(s/1.98))/0.815
-  x3 <- (log(s/4.95))/0.735
-  x4 <- (log(s/11.55))/0.99
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_b_L <- function(s){
-  x1 <- (log(s/0.81))/0.875
-  x2 <- (log(s/1.62))/0.845
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_b_L <- function(s){
-  x2 <- (log(s/1.62))/0.845
-  x3 <- (log(s/4.05))/0.845
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_b_L <- function(s){
-  x3 <- (log(s/4.05))/0.845
-  x4 <- (log(s/9.45))/0.97
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_b_L <- function(s){
-  x4 <- (log(s/9.45))/0.97
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_b_L <- function(s){
-  x1 <- (log(s/0.81))/0.875
-  x2 <- (log(s/1.62))/0.845
-  x3 <- (log(s/4.05))/0.845
-  x4 <- (log(s/9.45))/0.97
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_b_M <- function(s){
-  x1 <- (log(s/0.9))/0.85
-  x2 <- (log(s/1.8))/0.83
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_b_M <- function(s){
-  x2 <- (log(s/1.8))/0.83
-  x3 <- (log(s/4.5))/0.79
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_b_M <- function(s){
-  x3 <- (log(s/4.5))/0.79
-  x4 <- (log(s/10.5))/0.98
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_b_M <- function(s){
-  x4 <- (log(s/10.5))/0.98
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_b_M <- function(s){
-  x1 <- (log(s/0.9))/0.85
-  x2 <- (log(s/1.8))/0.83
-  x3 <- (log(s/4.5))/0.79
-  x4 <- (log(s/10.5))/0.98
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
-dm_slight_rc_b_P <- function(s){
-  x1 <- (log(s/0.72))/0.9
-  x2 <- (log(s/1.44))/0.86
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  slight <- y1-y2
-  return(slight)
-}
-dm_moderate_rc_b_P <- function(s){
-  x2 <- (log(s/1.44))/0.86
-  x3 <- (log(s/3.6))/0.9
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  moderate <- y2-y3
-  return(moderate)
-}
-dm_extensive_rc_b_P <- function(s){
-  x3 <- (log(s/3.6))/0.9
-  x4 <- (log(s/8.4))/0.96
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  extensive <- y3-y4
-  return(extensive)
-}
-dm_complete_rc_b_P <- function(s){
-  x4 <- (log(s/8.4))/0.96
-  y4 <- pnorm(x4, mean=0,sd=1)
-  complete <- y4
-  return(complete)
-}
-xf_dm_rc_b_P <- function(s){
-  x1 <- (log(s/0.72))/0.9
-  x2 <- (log(s/1.44))/0.86
-  x3 <- (log(s/3.6))/0.9
-  x4 <- (log(s/8.4))/0.96
-  y1 <- pnorm(x1, mean=0,sd=1)
-  y2 <- pnorm(x2, mean=0,sd=1)
-  y3 <- pnorm(x3, mean=0,sd=1)
-  y4 <- pnorm(x4, mean=0,sd=1)
-  slight <- y1-y2
-  moderate <- y2-y3
-  extensive <- y3-y4
-  complete <- y4
-  slight2 <- slight*0.2          
-  moderate2 <- moderate*0.4       
-  extensive2 <- extensive*0.7       
-  complete2 <- complete*1       
-  damage <- slight2+moderate2+extensive2+complete2
-  return(damage)
-}
+
+#### Set working directory to simplify paths
+setwd("/path/")
+
+
+#### Code 1.1 Extract building height and physical attributes
+#### Reads building footprint data and calculates physical properties like area, length, width, and orientation
+
+read_sf("building_footprints.shp") %>%  #### The building footprints were extracted from the GABLE dataset
+  mutate(idd = row_number()) %>%
+  st_transform(crs = 3857) -> test
+
+test %>%
+  st_minimum_rotated_rectangle() %>%
+  mutate(area1 = as.numeric(st_area(test))) %>%
+  mutate(
+    length_cal = map(geometry, function(geom) {
+      coords <- st_coordinates(geom) %>%
+        as_tibble() %>%
+        distinct(X, Y, .keep_all = TRUE)
+      bc1 <- sqrt((coords$X[1] - coords$X[2])^2 + (coords$Y[1] - coords$Y[2])^2)
+      bc2 <- sqrt((coords$X[2] - coords$X[3])^2 + (coords$Y[2] - coords$Y[3])^2)
+      cita1 <- asin((coords$Y[2] - coords$Y[1]) / sqrt((coords$X[2] - coords$X[1])^2 + (coords$Y[2] - coords$Y[1])^2)) * 180 / pi
+      cita2 <- asin((coords$Y[3] - coords$Y[2]) / sqrt((coords$X[3] - coords$X[2])^2 + (coords$Y[3] - coords$Y[2])^2)) * 180 / pi
+      tibble(bc1 = bc1, bc2 = bc2, cita1 = cita1, cita2 = cita2)
+    })
+  ) %>%
+  unnest(length_cal) %>%
+  st_drop_geometry() %>%
+  mutate(area2 = bc1 * bc2,
+         ra = area2 / area1,
+         bc11 = bc1 / sqrt(ra),
+         bc22 = bc2 / sqrt(ra)) %>%
+  dplyr::select(idd, area1, bc11, bc22, cita1, cita2) -> xx
+
+xx %>%
+  write_csv("physical_properties.csv")
+
+
+###### Height validation using building height raster data
+rast("building_height.tif") %>%
+  terra::extract(df1) %>%
+  as_tibble() %>%
+  na.omit() %>%
+  split(.$ID) %>%
+  map(function(x) x %>% arrange(-BH_prediction) %>% slice(1)) %>%
+  bind_rows() %>%
+  set_names("idd", "hh1") -> hh1
+
+hh1 %>%
+  write_csv("height_validation.csv")
+
+
+
+
+
+
+
+
+##### Code 1.2 Estimation of building age and use type
+
+read_csv("building_features.csv") -> a1  
+read_csv("building_years.csv") -> yy  
+read_csv("building_types.csv") %>%
+  dplyr::select(iddd, build_type, new_age) -> a2  ##### the training data
+
+a2 %>%
+  full_join(yy) %>%
+  dplyr::select(-build_type) -> lzz
+
+lzz %>%
+  na.omit() -> pp1
+pp1 %>%
+  dplyr::select(-new_age) %>%
+  rename(year = buildYear) -> kk1
+
+lzz %>%
+  dplyr::filter(if_any(everything(), is.na)) -> pp2
+pp2[is.na(pp2)] <- 0
+
+pp2 %>%
+  mutate(year = new_age + buildYear) %>%
+  dplyr::select(iddd, year) -> kk2
+kk1 %>%
+  bind_rows(kk2) -> kk3
+
+a2 %>%
+  dplyr::select(-new_age) -> kk4
+a1 %>%
+  left_join(kk3) %>%
+  left_join(kk4) -> df1
+
+df1 %>%
+  dplyr::filter(is.na(year)) -> test1
+df1 %>%
+  dplyr::filter(!is.na(year)) -> train1
+train1 %>%
+  dplyr::select(-iddd, -link1km, -poi, -buildYear, -build_type) -> train2
+
+train2 %>%
+  count(year) %>%
+  mutate(prop = n / sum(n),
+         lgy = round(5000 * prop)) %>%
+  mutate(lgy = if_else(lgy == 0, n, lgy)) %>%
+  dplyr::select(year, lgy) -> temp2
+
+train2 %>%
+  split(.$year) %>%
+  map(function(x)
+    x %>%
+      sample_n(
+        temp2 %>% dplyr::filter(year == unique(x$year)) %>%
+          dplyr::select(lgy) %>% pull()
+      )) %>%
+  bind_rows() -> train33
+
+randomForest(year ~ ., data = train33, importance = T) %>%
+  predict(test1) -> tss_year
+
+test1 %>%
+  mutate(year = round(tss_year, digits = 0)) %>%
+  bind_rows(train1) %>%
+  write_csv("predicted_years.csv")
+
+
+
+
+      
+#### Code 1.3 Ascertain the applicable seismic design provisions
+# Extracts seismic design parameters from GB18306 standard based on coordinates
+
+read_csv("coordinates.csv") -> cdf
+
+get_pga <- function(x, y, z) {
+  fromJSON(paste0("https://www.gb18306.net/querykz?x=", x, "&y=", y, "&ak=c83dc409-03d8-433b-a41d-0c5f39d7265d&year=", z, "&kz=yes"))
+}
+
+# Batch processing of coordinates for seismic parameters
+for (i in 1:nrow(cdf)) {
+  print(i)
+  if (!file.exists(paste0("seismic_js2015/J_", cdf$secc[i], "_", cdf$idd[i], ".json"))) {
+    get_pga(cdf$lon[i], cdf$lat[i], 2015) %>%
+      write_json(paste0("seismic_js2015/J_", cdf$secc[i], "_", cdf$idd[i], ".json"))
+  }
+}
+
+# Processing county-level coordinates
+read_csv("county_coordinates.csv") -> cdf
+
+get_pga2 <- function(x, y, z) {
+  fromJSON(paste0("https://www.gb18306.net/querykz?x=", x, "&y=", y, "&ak=c83dc409-03d8-433b-a41d-0c5f39d7265d&year=1985&kz=yes")) %>%
+    write_json(paste0("seismic_js1985/J_", z, ".json"))
+}
+
+cdf %>%
+  dplyr::select(-1) %>%
+  set_names("x", "y", "z") %>%
+  slice(c(2684:2878)) %>%
+  mutate(jss = pmap(list(x, y, z), get_pga2))
+
+# Process JSON results to extract seismic parameters
+dir_ls('seismic_js1975/') %>%
+  as.character() %>%
+  as_tibble() -> df
+
+eq_json <- function(path) {
+  fromJSON(path) -> test
+  test$ld -> a_ld
+  return(a_ld)
+}
+
+df %>%
+  set_names("path") %>%
+  mutate(eqq = map(path, eq_json)) %>%
+  mutate(eqq = map(eqq, function(x) {
+    if (is.list(x)) {
+      return(unlist(x))
+    } else {
+      return(x)
+    }
+  })) %>%
+  unnest(eqq) -> df2
+
+df2 %>%
+  mutate(path = str_remove_all(path, "seismic_js1975/J_"),
+         path = str_remove_all(path, ".json")) %>%
+  mutate(path = as.numeric(path)) %>%
+  rename(idd = path) -> df3
+
+df3 %>%
+  write_csv("seismic_parameters_1975.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### Code 1.4 Building structure classification
+
+read_csv("building_data.csv") -> df33
+df33 %>%
+  dplyr::select(-type) -> df33
+
+df33 %>%
+  mutate(vol = high * area1) -> sj
+
+sj %>%
+  dplyr::filter(high > 21) -> rc1
+rc1 %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "rc") -> rc11
+
+sj %>%
+  dplyr::filter(high <= 21) %>%
+  mutate(gkb = high / kuan) %>%
+  dplyr::filter(gkb > 5) -> rc2
+rc2 %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "rc") -> rc22
+
+sj %>%
+  dplyr::filter(high <= 21) %>%
+  mutate(gkb = high / kuan) %>%
+  dplyr::filter(gkb <= 5) %>%
+  dplyr::filter(poi == 1) -> rc3
+rc3 %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "rc") -> rc33
+
+sj %>%
+  dplyr::filter(high <= 21) %>%
+  mutate(gkb = high / kuan) %>%
+  dplyr::filter(gkb <= 5) %>%
+  dplyr::filter(is.na(poi)) %>%
+  dplyr::filter(build_type != 2) %>%
+  dplyr::filter(area1 > 1000) -> rc2a
+rc2a %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "rc") -> rc22a
+
+sj %>%
+  dplyr::filter(high <= 21) %>%
+  mutate(gkb = high / kuan) %>%
+  dplyr::filter(gkb <= 5) %>%
+  dplyr::filter(is.na(poi)) %>%
+  dplyr::filter(build_type == 2) %>%
+  dplyr::filter(area1 > 400) -> rc2b
+rc2b %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "rc") -> rc22b
+
+rc11 %>%
+  bind_rows(rc22) %>%
+  bind_rows(rc33) %>%
+  bind_rows(rc22a) %>%
+  bind_rows(rc22b) -> rrcc
+
+sj %>%
+  left_join(rrcc) %>%
+  dplyr::filter(is.na(type)) %>%
+  dplyr::select(-type) -> sj1
+
+# Wood structure classification
+sj1 %>%
+  dplyr::filter(lulc == 52) -> wd1
+wd1 %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "wd") -> wd11
+
+sj1 %>%
+  dplyr::filter(lulc != 52) %>%
+  dplyr::filter(build_type == 6) -> wd2
+wd2 %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "wd") -> wd22
+
+sj1 %>%
+  dplyr::filter(lulc != 52) %>%
+  dplyr::filter(build_type != 6) %>%
+  dplyr::filter(high <= 3) %>%
+  arrange(vol) %>%
+  mutate(lgy = vol / sum(sj$vol)) %>%
+  mutate(lgy1 = cumsum(lgy)) %>%
+  dplyr::filter(lgy1 <= (code_wd - ww1 - ww2)) -> wd3
+wd3 %>%
+  dplyr::select(iddd) %>%
+  mutate(type = "wd") -> wd33
+
+rrcc %>%
+  bind_rows(wd33) %>%
+  bind_rows(wd11) %>%
+  bind_rows(wd22) -> xff
+
+sj %>%
+  left_join(xff) %>%
+  mutate(type = if_else(is.na(type), "bc", type)) -> sj1
+
+sj1 %>%
+  write_csv("building_structure_classification.csv")
+
+
+
+
+
+
+
+
+
+
+
+#### Code 1.5 Material stock calculation
+
+readxl::read_xlsx("material_intensity.xlsx") -> mii
+
+eq_ms <- function(acode) {
+  read_csv(paste0("building_data_", format(acode, scientific = FALSE), ".csv")) -> df
+  read_csv(paste0("km_grid_", format(acode, scientific = FALSE), ".csv")) -> km
+  
+  df %>%
+    dplyr::select(iddd, prov, high, area1, year, func, stru, hhh, epa) %>%
+    mutate(epa = if_else(epa < 0.05, 0.05, epa)) %>%
+    mutate(epa = if_else(is.na(epa), 0.05, epa)) %>%
+    left_join(km) %>%
+    mutate(cengg = 3.5) %>%
+    mutate(cengg = if_else(func == "r" & high >= 18 & high < 36 & area1 >= 1000, 3.8, cengg)) %>%
+    # ... (additional conditional mutations for cengg)
+    mutate(year = if_else(year < 1970, 1970, year)) %>%
+    mutate(prov = format(prov, scientific = FALSE)) %>%
+    unite("link3", stru, func, prov) %>%
+    mutate(flor = floor(high / cengg),
+           flor = if_else(flor < 1, 1, flor)) %>%
+    left_join(mii) %>%
+    mutate(
+      ms_Steel = (year * Steel_k + Steel_b) * area1 * flor / 1000,
+      # ... (additional material calculations)
+      ms_total = ms_Steel + ms_Aluminum + ms_Copper + ms_Wood + ms_Cement + 
+                 ms_Brick + ms_Gravel + ms_Sand + ms_Asphalt + ms_Glass + 
+                 ms_Plastic + ms_Rubber,
+      hs_area = area1 * flor
+    ) %>%
+    dplyr::select(link3, hhh, epa, lon_1km, lat_1km, ms_Steel, ms_Aluminum, 
+                  ms_Copper, ms_Wood, ms_Cement, ms_Brick, ms_Gravel, ms_Sand, 
+                  ms_Asphalt, ms_Glass, ms_Plastic, ms_Rubber, ms_total) %>%
+    separate(link3, into = c("stru", "func", "prov"), sep = "_") %>%
+    dplyr::select(-prov) %>%
+    unite("ztype", stru, func, epa, hhh) %>%
+    unite("link5", lon_1km, lat_1km) %>%
+    unite("link6", ztype, link5, sep = "=") -> df2
+  
+  # Aggregate and save material stocks by type
+  df2 %>%
+    split(.$link6) %>%
+    map(function(x) dplyr::select(x, link6) %>% unique()) %>%
+    bind_rows() -> tmp1
+  
+  df2 %>%
+    split(.$link6) %>%
+    map(function(x) dplyr::select(x, -link6) %>% colSums()) %>%
+    bind_rows() -> tmp2
+  
+  data.frame(tmp1, tmp2) %>%
+    as_tibble() %>%
+    separate(link6, into = c("ztype", "link33"), sep = "=") -> df4
+  
+  # Save individual material stocks
+  materials <- c("Steel", "Aluminum", "Copper", "Wood", "Cement", "Brick", 
+                 "Gravel", "Sand", "Asphalt", "Glass", "Plastic", "Rubber", "total")
+  
+  for (mat in materials) {
+    df4 %>%
+      dplyr::select(ztype, link33, paste0("ms_", mat)) %>%
+      split(.$ztype) %>%
+      map(function(x)
+        x %>% dplyr::select(-ztype) %>% 
+          write_csv(paste0("material_stocks/", mat, "/", unique(x$ztype), "/ms_", acode, ".csv")))
+  }
+}
+
+# Rasterization function for material stocks
+js_rst <- function(mat, sss) {
+  read_csv(paste0("material_stocks/", mat, "/", sss, ".csv")) %>%
+    set_names("link33", "mss") -> kk
+  
+  cmod %>%
+    left_join(kk) %>%
+    mutate(mss = if_else(is.na(mss), 0, mss)) %>%
+    dplyr::select(-tmp) %>%
+    separate(link33, into = c("lon", "lat"), sep = "_") %>%
+    st_as_sf(coords = c("lon", "lat"), crs = crss) -> df1
+  
+  rast(ext(df1), resolution = c(1000, 1000),
+       crs = "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") -> raster_template
+  
+  rasterize(vect(df1), raster_template, field = "mss") -> rst
+  rst %>%
+    project(mod) %>%
+    resample(mod, method = "near") -> rst1
+  
+  names(rst1) <- mat
+  origin(rst1) <- c(0, 0)
+  rst1 %>%
+    writeRaster(paste0("material_rasters/", mat, "/", sss, ".tif"), overwrite = TRUE)
+}
+
+
+
+
+
+
+      
+      
