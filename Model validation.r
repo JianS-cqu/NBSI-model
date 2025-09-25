@@ -6,7 +6,7 @@
 
 ################### Code designed for model validation #######################
 ## We selected the @@M6.2 Jishishan earthquake in 18 Dec. 2023@@ as a case study to compare the differences in building damage, material losses, and casualties.
-
+##  If you have any questions, please email Jian Sun: sunjian143687@163.com
 
 #### Inputs
 ######################################################################
