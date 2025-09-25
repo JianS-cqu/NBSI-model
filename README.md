@@ -1,14 +1,13 @@
-Long-term seismic risk model
+Nationwide building seismic impact model
 
-code 1 (convertedVolume) designed to calculate the probability of building damages
+code 1 (Building exposure model and gridded stocks) designed to calculate the building exposure and inventories
 
-code 2 (buildingDamage) designed to transform the building volumes to stocks
+code 2 (Seismic hazard) designed to model the seismic hazard
 
-code 3 (modelValidation) designed for model validation
+code 3 (Fragility calculation of buildings) designed to obtained China building earthquake vulnerability model
 
-code 4 (EEassessment) designed to calculate the economic costs and environmental impacts
+code 4 (Model validation) designed for model validation
 
-
-
+ #### If you have any questions, please email Jian Sun: sunjian143687@163.com
 
 
