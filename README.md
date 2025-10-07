@@ -1,13 +1,13 @@
-Nationwide building seismic impact model
+Nationwide building seismic impact (NBSI) model
 
-code 1 (Building exposure model and gridded stocks) designed to calculate the building exposure and inventories
+Code 1: Exposure Modeling
 
-code 2 (Seismic hazard) designed to model the seismic hazard
+Code 2: Hazard Modeling
 
-code 3 (Fragility calculation of buildings) designed to obtained China building earthquake vulnerability model
+Code 3: Vulnerability Modeling
 
-code 4 (Model validation) designed for model validation
+Code 4: Model Validation
 
- #### If you have any questions, please email Jian Sun: sunjian143687@163.com
+For inquiries, please contact Jian Sun at sunjian143687@163.com
 
 
